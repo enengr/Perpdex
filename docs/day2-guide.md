@@ -385,42 +385,47 @@ function _calculatePositionMargin(int256 size) internal view returns (uint256) {
     return (notional * initialMarginBps) / 10_000;
 }
 
-function _calculateWorstCaseMargin(address trader) internal view returns (uint256) {
-    Position memory pos = accounts[trader].position;
+    function _calculateWorstCaseMargin(address trader) internal view returns (uint256) {
+        Position memory pos = accounts[trader].position;
 
-    uint256 totalBuy = 0;
-    uint256 totalSell = 0;
+        // 1. Calculate margin needed for Open Orders (based on Order Price)
+        // 使用委托价 (User Price) 而非标记价来计算挂单占用的保证金
+        uint256 buyOrderMargin = 0;
+        uint256 id = bestBuyId;
+        while (id != 0) {
+            if (orders[id].trader == trader) {
+                 uint256 orderVal = (orders[id].price * orders[id].amount) / 1e18;
+                 buyOrderMargin += (orderVal * initialMarginBps) / 10_000;
+            }
+            id = orders[id].next;
+        }
 
-    uint256 id = bestBuyId;
-    while (id != 0) {
-        if (orders[id].trader == trader) totalBuy += orders[id].amount;
-        id = orders[id].next;
+        uint256 sellOrderMargin = 0;
+        id = bestSellId;
+        while (id != 0) {
+            if (orders[id].trader == trader) {
+                 uint256 orderVal = (orders[id].price * orders[id].amount) / 1e18;
+                 sellOrderMargin += (orderVal * initialMarginBps) / 10_000;
+            }
+            id = orders[id].next;
+        }
+
+        // 2. Calculate margin needed for Current Position (based on Mark Price)
+        uint256 positionMargin = _calculatePositionMargin(pos.size);
+
+        // 3. Total Required = Position Margin + Max(BuyOrdersMargin, SellOrdersMargin)
+        return positionMargin + (buyOrderMargin > sellOrderMargin ? buyOrderMargin : sellOrderMargin);
     }
 
-    id = bestSellId;
-    while (id != 0) {
-        if (orders[id].trader == trader) totalSell += orders[id].amount;
-        id = orders[id].next;
+    function _checkWorstCaseMargin(address trader) internal view {
+        uint256 required = _calculateWorstCaseMargin(trader);
+        Position memory p = accounts[trader].position;
+
+        int256 marginBalance =
+            int256(accounts[trader].freeMargin) + p.realizedPnl + _unrealizedPnl(p);
+
+        require(marginBalance >= int256(required), "insufficient margin");
     }
-
-    int256 sizeIfAllBuy = pos.size + int256(totalBuy);
-    int256 sizeIfAllSell = pos.size - int256(totalSell);
-
-    uint256 marginIfAllBuy = _calculatePositionMargin(sizeIfAllBuy);
-    uint256 marginIfAllSell = _calculatePositionMargin(sizeIfAllSell);
-
-    return marginIfAllBuy > marginIfAllSell ? marginIfAllBuy : marginIfAllSell;
-}
-
-function _checkWorstCaseMargin(address trader) internal view {
-    uint256 required = _calculateWorstCaseMargin(trader);
-    Position memory p = accounts[trader].position;
-
-    int256 marginBalance =
-        int256(accounts[trader].freeMargin) + p.realizedPnl + _unrealizedPnl(p);
-
-    require(marginBalance >= int256(required), "insufficient margin");
-}
 ```
 
 ---
