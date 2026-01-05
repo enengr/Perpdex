@@ -181,6 +181,7 @@ function _updatePosition(
             : (existingAbs * p.entryPrice + amount * tradePrice) / newAbs;
         p.entryPrice = weighted;
         p.size += signed;
+        emit PositionUpdated(trader, p.size, p.entryPrice);
         return;
     }
 
@@ -470,7 +471,16 @@ type Position @entity {
 }
 ```
 
-### Step 2: 实现 TradeExecuted Handler
+### Step 2: 添加事件配置
+
+在 `indexer/config.yaml` 的 events 列表中添加：
+
+```yaml
+      - event: TradeExecuted(uint256 indexed buyOrderId, uint256 indexed sellOrderId, uint256 price, uint256 amount, address buyer, address seller)
+      - event: PositionUpdated(address indexed trader, int256 size, uint256 entryPrice)
+```
+
+### Step 3: 实现 TradeExecuted Handler
 
 在 `indexer/src/EventHandlers.ts` 中添加：
 
@@ -510,52 +520,106 @@ Exchange.TradeExecuted.handler(async ({ event, context }) => {
             status: newAmount === 0n ? "FILLED" : "OPEN",
         });
     }
-
-    // 3. 更新持仓（见 updatePosition 辅助函数）
-    await updatePosition(context, event.params.buyer, true, event.params.amount, event.params.price);
-    await updatePosition(context, event.params.seller, false, event.params.amount, event.params.price);
 });
 ```
 
-### Step 3: 实现 updatePosition 辅助函数
+### Step 4: 实现 PositionUpdated Handler
+
+合约的 `_updatePosition` 函数会发出 `PositionUpdated` 事件，我们直接监听它来更新持仓，无需手动计算：
 
 ```typescript
-async function updatePosition(context: any, trader: string, isBuy: boolean, amount: bigint, price: bigint) {
-    const existingPosition = await context.Position.get(trader);
-    let position = existingPosition ? { ...existingPosition } : {
-        id: trader,
-        trader,
-        size: 0n,
-        entryPrice: 0n,
+Exchange.PositionUpdated.handler(async ({ event, context }) => {
+    const position: Position = {
+        id: event.params.trader,
+        trader: event.params.trader,
+        size: event.params.size,
+        entryPrice: event.params.entryPrice,
     };
-
-    const signedAmount = isBuy ? amount : -amount;
-    const currentSize = position.size;
-
-    // 加仓逻辑
-    if (currentSize === 0n || (currentSize > 0n && isBuy) || (currentSize < 0n && !isBuy)) {
-        const totalSize = currentSize + signedAmount;
-        const absTotalSize = totalSize > 0n ? totalSize : -totalSize;
-        const absCurrentSize = currentSize > 0n ? currentSize : -currentSize;
-
-        if (absTotalSize > 0n) {
-            position.entryPrice = (absCurrentSize * position.entryPrice + amount * price) / absTotalSize;
-        }
-        position.size = totalSize;
-    } else {
-        // 平仓逻辑
-        const absCurrentSize = currentSize > 0n ? currentSize : -currentSize;
-        const closeAmount = amount > absCurrentSize ? absCurrentSize : amount;
-        let pnl = currentSize > 0n
-            ? ((price - position.entryPrice) * closeAmount) / (10n ** 18n)
-            : ((position.entryPrice - price) * closeAmount) / (10n ** 18n);
-        // 盈亏直接记录到事件或跳过（合约已结算到 freeMargin）
-        position.size += signedAmount;
-        if (position.size === 0n) position.entryPrice = 0n;
-    }
     context.Position.set(position);
+});
+```
+
+> [!TIP]
+> 直接使用合约发出的事件比在 Indexer 中重新计算更简单、更可靠，且能保证与链上状态一致。
+
+### Step 5: Indexer 验证
+
+**启动 Indexer：**
+
+```bash
+cd indexer
+pnpm codegen  # 每次修改 config.yaml 或 schema.graphql 后必须运行
+pnpm dev
+```
+
+**触发事件（在前端操作）：**
+
+1. 打开 http://localhost:3000
+2. Alice 充值 10 MON，下买单：价格 100，数量 1
+3. 切换到 Bob，充值 10 MON，下卖单：价格 100，数量 1
+4. 订单撮合成交，触发 `TradeExecuted` 和 `PositionUpdated` 事件
+
+**查询成交记录：**
+
+```bash
+curl -s -X POST http://localhost:8080/v1/graphql \
+  -H "Content-Type: application/json" \
+  -d '{"query": "{ Trade(limit: 5, order_by: {timestamp: desc}) { id buyer seller price amount timestamp } }"}'
+```
+
+预期结果：
+
+```json
+{
+  "data": {
+    "Trade": [
+      {
+        "id": "0x124e7c91...-1",
+        "buyer": "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266",
+        "seller": "0x70997970c51812dc3a010c7d01b50e0d17dc79c8",
+        "price": "100000000000000000000",
+        "amount": "1000000000000000000",
+        "timestamp": 1234567890
+      }
+    ]
+  }
 }
 ```
+
+**查询持仓：**
+
+```bash
+curl -s -X POST http://localhost:8080/v1/graphql \
+  -H "Content-Type: application/json" \
+  -d '{"query": "{ Position { id trader size entryPrice } }"}'
+```
+
+预期结果：
+
+```json
+{
+  "data": {
+    "Position": [
+      {
+        "id": "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266",
+        "trader": "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266",
+        "size": "1000000000000000000",
+        "entryPrice": "100000000000000000000"
+      },
+      {
+        "id": "0x70997970c51812dc3a010c7d01b50e0d17dc79c8",
+        "trader": "0x70997970c51812dc3a010c7d01b50e0d17dc79c8",
+        "size": "-1000000000000000000",
+        "entryPrice": "100000000000000000000"
+      }
+    ]
+  }
+}
+```
+
+> [!NOTE]
+> - `size` 为正表示多头，为负表示空头
+> - `price` 和 `amount` 使用 1e18 精度（100 MON = 100000000000000000000）
 
 ---
 

@@ -166,4 +166,7 @@ abstract contract ExchangeStorage is AccessControl, ReentrancyGuard {
 
     /// @notice 操作员更新事件
     event OperatorUpdated(address operator);
+
+    /// @notice 持仓更新事件
+    event PositionUpdated(address indexed trader, int256 size, uint256 entryPrice);
 }

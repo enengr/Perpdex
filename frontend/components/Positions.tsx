@@ -17,13 +17,12 @@ export const Positions: React.FC = observer(() => {
     const size = Number(formatEther(position.size));
     const absSize = Math.abs(size);
 
-    const unrealized = (mark - entry) * size;
-    const realized = Number(formatEther(position.realizedPnl));
-    const pnl = unrealized + realized;
+    const pnl = (mark - entry) * size;
 
     // margin 是可用保证金 (freeMargin)，单位是 ETH
+    // 已实现盈亏已结算到 freeMargin，无需额外计算
     const freeMargin = Number(formatEther(margin));
-    const effectiveMargin = freeMargin + realized;
+    const effectiveMargin = freeMargin;
     const mmRatio = 0.005; // 0.5% 维持保证金率
 
     let liqPrice = 0;
