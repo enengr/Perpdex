@@ -4,7 +4,8 @@
     "scripts": {
         "codegen": "envio codegen",
         "start": "envio start",
-        "dev": "envio dev"
+        "dev": "envio dev",
+        "stop": "envio stop"
     },
     "dependencies": {
         "envio": "latest"
