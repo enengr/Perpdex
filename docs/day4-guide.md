@@ -33,7 +33,7 @@ forge test --match-contract Day3MatchingTest -vvv
 
 ## 3) 当天完成标准
 
-- `forge test --match-contract Day4PriceUpdateTest -vvv` 全部通过（4 个测试）
+- `forge test --match-contract Day4PriceUpdateTest -vvv` 全部通过（5 个测试）
 - Operator 可成功调用 `updateIndexPrice()`
 - 非 Operator 调用 `updateIndexPrice()` 必须 revert
 - 当订单簿为空时，`markPrice == indexPrice`
@@ -165,35 +165,43 @@ Keeper 需要定期执行以下操作：
 2. 转换为合约精度（`1e18`）
 3. 调用 `updateIndexPrice()` 推送到链上
 
-**使用 Pyth Network**
+参考实现（替换 `updatePrice` 函数内的 TODO）：
 
 ```typescript
-// 1. 获取价格
-const res = await fetch(`https://hermes.pyth.network/v2/updates/price/latest?ids[]=${PYTH_ETH_ID}`);
-const data = await res.json();
-const priceInfo = data.parsed[0].price;
+private async updatePrice() {
+    try {
+        // 1. 从 Pyth 获取价格
+        const res = await fetch(`https://hermes.pyth.network/v2/updates/price/latest?ids[]=${this.PYTH_ETH_ID}`);
+        const data = await res.json();
+        const priceInfo = data.parsed[0].price;
 
-// 2. 解析价格 (price = p * 10^expo)
-const p = BigInt(priceInfo.price);
-const expo = priceInfo.expo;
+        // 2. 解析价格 (price = p * 10^expo)
+        const p = BigInt(priceInfo.price);
+        const expo = priceInfo.expo;
 
-// 3. 转换为 1e18 精度 (Wei)
-// 公式: p * 10^expo * 10^18 = p * 10^(18 + expo)
-const priceWei = p * (10n ** BigInt(18 + expo));
+        // 3. 转换为 1e18 精度 (Wei)
+        // 公式: p * 10^expo * 10^18 = p * 10^(18 + expo)
+        const priceWei = p * (10n ** BigInt(18 + expo));
+
+        console.log(`[PriceKeeper] Fetched ETH price: $${Number(p) * Math.pow(10, expo)} -> ${priceWei} wei`);
+
+        // 4. 调用合约更新价格
+        const hash = await walletClient.writeContract({
+            address: ADDRESS as `0x${string}`,
+            abi: EXCHANGE_ABI,
+            functionName: 'updateIndexPrice',
+            args: [priceWei]
+        });
+        await publicClient.waitForTransactionReceipt({ hash });
+        console.log(`[PriceKeeper] Price updated on-chain, tx: ${hash}`);
+
+    } catch (e) {
+        console.error('[PriceKeeper] Error updating price:', e);
+    }
+}
 ```
 
-**调用合约更新价格**
-
-```typescript
-// TODO: 调用合约
-// const hash = await walletClient.writeContract({
-//     address: EXCHANGE_ADDRESS as `0x${string}`,
-//     abi: EXCHANGE_ABI,
-//     functionName: 'updateIndexPrice',
-//     args: [priceWei]
-// });
-// await publicClient.waitForTransactionReceipt({ hash });
-```
+> **注意**：运行 Keeper 前需要设置环境变量 `EXCHANGE_ADDRESS`，或在 `keeper/.env` 中配置。
 
 ---
 
@@ -310,7 +318,7 @@ cd contract
 forge test --match-contract Day4PriceUpdateTest -vvv
 ```
 
-通过标准：4 个测试全部 `PASS`
+通过标准：5 个测试全部 `PASS`
 
 单独运行某个测试：
 
@@ -326,31 +334,56 @@ forge test --match-test testOperatorCanUpdatePrice -vvv
 ./quickstart.sh
 ```
 
-打开 `http://localhost:3000`，验证：
-
-**验收路径 1：价格显示**
-
-1. 观察 Header 区域是否显示 Index Price 和 Mark Price
-2. 如果显示 `--` 或 `0`，说明 Keeper 未运行或合约函数未实现
-
-**验收路径 2：手动测试价格更新**
-
-在终端中使用 Foundry 的 `cast` 命令测试：
+**环境变量设置**（从部署日志或 `frontend/.env.local` 获取合约地址）：
 
 ```bash
-# 获取当前价格
-cast call <EXCHANGE_ADDRESS> "indexPrice()" --rpc-url http://localhost:8545
+export EXCHANGE=0x...  # 替换为实际合约地址
+export OPERATOR_KEY=0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80
+export RPC=http://localhost:8545
+```
 
-# 更新价格（需要 Operator 私钥）
-cast send <EXCHANGE_ADDRESS> "updateIndexPrice(uint256)" "2500000000000000000000" \
-  --private-key <OPERATOR_PRIVATE_KEY> --rpc-url http://localhost:8545
+> 每次重启链后价格初始为 0，需要先初始化价格。
+
+**验收路径 1：手动初始化并验证价格**
+
+```bash
+# 查看当前价格
+cast to-unit $(cast call $EXCHANGE "indexPrice()" --rpc-url $RPC) ether
+
+# 更新价格为 2500 USD
+cast send $EXCHANGE "updateIndexPrice(uint256)" "2500000000000000000000" \
+  --private-key $OPERATOR_KEY --rpc-url $RPC
+
+# 验证更新成功
+cast to-unit $(cast call $EXCHANGE "indexPrice()" --rpc-url $RPC) ether
+```
+
+打开 `http://localhost:3000`，确认 Header 显示 Index Price 和 Mark Price。
+
+**验收路径 2：非 Operator 调用被拒绝**
+
+```bash
+# 使用非 Operator 账户（Bob）应该失败
+cast send $EXCHANGE "updateIndexPrice(uint256)" "3000000000000000000000" \
+  --private-key 0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d \
+  --rpc-url $RPC
+# 预期：AccessControlUnauthorizedAccount 错误
 ```
 
 **验收路径 3：Keeper 自动更新**
 
-1. 启动 Keeper 服务：`cd keeper && pnpm start`
-2. 观察日志输出价格更新信息
-3. 刷新前端，确认价格变化
+1. 配置合约地址（从部署日志或 `frontend/.env.local` 获取）：
+   ```bash
+   cd keeper
+   echo "EXCHANGE_ADDRESS=0x..." > .env  # 替换为实际部署地址
+   ```
+2. 启动 Keeper 服务：`pnpm start`
+3. 观察日志输出价格更新信息：
+   ```
+   [PriceKeeper] Fetched ETH price: $3245.34 -> 3245340000000000000000 wei
+   [PriceKeeper] Price updated on-chain, tx: 0x...
+   ```
+4. 刷新前端，确认价格变化
 
 ---
 
@@ -402,7 +435,7 @@ Day 5 会使用这些价格实现"数据索引与 K 线"：
 
 ---
 
-## 9) 进阶开发（必须完成）
+## 9) 进阶开发（可选）
 
 1. **实现完整的 Pyth 集成**
    - 解析 Pyth 的 `expo` 指数字段。
