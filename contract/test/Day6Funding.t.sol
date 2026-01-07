@@ -198,4 +198,101 @@ contract Day6FundingTest is ExchangeFixture {
         assertEq(exchange.margin(alice), marginALong + payment, "long receives funding");
         assertEq(exchange.margin(bob), marginBShort - payment, "short pays funding");
     }
+
+    // ============ _ensureWithdrawKeepsMaintenance 测试 ============
+    // maintenanceMarginBps = 50 (0.5%)
+    // maintenance = positionValue * 50 / 10_000 = positionValue * 0.005
+
+    function testWithdrawNoPositionAllowsFullWithdrawal() public {
+        // 用例：无持仓时可以全部提取
+        // setUp 中 alice 已存入 50_000 ether，没有开仓
+        uint256 balance = exchange.margin(alice);
+        assertEq(balance, 50_000 ether, "initial margin");
+
+        vm.prank(alice);
+        exchange.withdraw(balance);
+
+        assertEq(exchange.margin(alice), 0, "can withdraw all without position");
+    }
+
+    function testWithdrawWithProfitablePositionSuccess() public {
+        // 用例：有盈利持仓时，考虑未实现盈亏后仍满足维持保证金，提取成功
+        // alice 开多头 100 size @ 100 价格，bob 作为对手方
+        vm.prank(alice);
+        exchange.placeOrder(true, 100 ether, 100 ether, 0);
+        vm.prank(bob);
+        exchange.placeOrder(false, 100 ether, 100 ether, 0);
+
+        // 价格涨到 150，alice 有未实现盈利
+        exchange.updatePrices(150 ether, 150 ether);
+        // unrealizedPnl = (150 - 100) * 100 = 5,000 ether
+        // positionValue = 150 * 100 = 15,000 ether
+        // maintenance = 15,000 * 0.5% = 75 ether
+        // marginBalance after withdraw 5000 = (50000 - 5000) + 5000 = 50,000 >> 75 ✓
+
+        uint256 withdrawAmount = 5_000 ether;
+        vm.prank(alice);
+        exchange.withdraw(withdrawAmount);
+
+        assertEq(exchange.margin(alice), 50_000 ether - withdrawAmount, "withdraw succeeds with profitable position");
+    }
+
+    function testWithdrawRevertsWhenWouldTriggerLiquidation() public {
+        // 用例：提取后 marginBalance < maintenance，应该 revert
+        vm.prank(alice);
+        exchange.placeOrder(true, 100 ether, 100 ether, 0);
+        vm.prank(bob);
+        exchange.placeOrder(false, 100 ether, 100 ether, 0);
+
+        // 价格跌到 80，alice 有未实现亏损
+        exchange.updatePrices(80 ether, 80 ether);
+        // unrealizedPnl = (80 - 100) * 100 = -2,000 ether
+        // positionValue = 80 * 100 = 8,000 ether
+        // maintenance = 8,000 * 0.5% = 40 ether
+        // marginBalance = 50,000 - withdraw - 2,000 = 48,000 - withdraw
+        // 需要 withdraw > 47,960 使得 marginBalance < 40
+
+        uint256 withdrawAmount = 48_000 ether;
+        // marginBalance = 50,000 - 48,000 + (-2,000) = 0 < 40 → revert
+        vm.prank(alice);
+        vm.expectRevert("withdraw would trigger liquidation");
+        exchange.withdraw(withdrawAmount);
+    }
+
+    function testWithdrawAtExactMaintenanceBoundary() public {
+        // 用例：刚好在维持保证金边界时，提取成功
+        vm.prank(alice);
+        exchange.placeOrder(true, 100 ether, 100 ether, 0);
+        vm.prank(bob);
+        exchange.placeOrder(false, 100 ether, 100 ether, 0);
+
+        exchange.updatePrices(80 ether, 80 ether);
+        // unrealizedPnl = -2,000 ether
+        // maintenance = 40 ether
+        // marginBalance = 50,000 - withdraw - 2,000 = 40
+        // withdraw = 47,960 ether
+
+        uint256 withdrawAmount = 47_960 ether;
+        vm.prank(alice);
+        exchange.withdraw(withdrawAmount);
+
+        assertEq(exchange.margin(alice), 50_000 ether - withdrawAmount, "withdraw at exact boundary succeeds");
+    }
+
+    function testWithdrawOneWeiBelowMaintenanceReverts() public {
+        // 用例：比维持保证金少 1 wei 时，应该 revert
+        vm.prank(alice);
+        exchange.placeOrder(true, 100 ether, 100 ether, 0);
+        vm.prank(bob);
+        exchange.placeOrder(false, 100 ether, 100 ether, 0);
+
+        exchange.updatePrices(80 ether, 80 ether);
+        // 边界是 47,960 ether，多提 1 wei 应该 revert
+        // marginBalance = 40 - 1 wei < 40 → revert
+
+        uint256 withdrawAmount = 47_960 ether + 1;
+        vm.prank(alice);
+        vm.expectRevert("withdraw would trigger liquidation");
+        exchange.withdraw(withdrawAmount);
+    }
 }

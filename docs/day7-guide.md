@@ -126,7 +126,7 @@ function _removeOrders(uint256 headId, address trader) internal returns (uint256
 
 修改：
 
-- `contract/src/modules/OrderBookModule.sol`
+- `contract/src/modules/LiquidationModule.sol`
 
 ```solidity
 function liquidate(address trader, uint256 amount) external virtual nonReentrant {
@@ -183,6 +183,8 @@ function liquidate(address trader, uint256 amount) external virtual nonReentrant
 ---
 
 ### Step 5: 实现清算撮合函数
+
+继续在 `LiquidationModule.sol` 中添加：
 
 ```solidity
 function _matchLiquidationSell(Order memory incoming) internal {

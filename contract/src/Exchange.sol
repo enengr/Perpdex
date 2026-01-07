@@ -2,8 +2,6 @@
 pragma solidity ^0.8.20;
 
 import "./modules/OrderBookModule.sol";
-import "./modules/LiquidationModule.sol";
-import "./modules/PricingModule.sol";
 import "./modules/ViewModule.sol";
 
 /// @title MonadPerpExchange

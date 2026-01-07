@@ -34,7 +34,7 @@ forge test --match-contract "Day1|Day2|Day3|Day4" -v
 
 ## 3) 当天完成标准
 
-- `forge test --match-contract Day6FundingTest -vvv` 全部通过（6 个测试）
+- `forge test --match-contract Day6FundingTest -vvv` 全部通过（11 个测试）
 - 多头在 mark > index 时支付资金费
 - 空头在 mark < index 时支付资金费
 - 资金费按 interval 累计
@@ -191,7 +191,47 @@ function _unrealizedPnl(Position memory p) internal view returns (int256) {
 
 ---
 
-### Step 5: 实现 FundingKeeper 定时结算
+### Step 5: 实现 `_ensureWithdrawKeepsMaintenance()`
+
+修改：
+
+- `contract/src/modules/MarginModule.sol`
+
+Day 1 中我们预留了这个函数的 TODO，现在有了 `_unrealizedPnl()` 和维持保证金参数，可以实现完整的提现检查逻辑：
+
+```solidity
+/// @notice 确保提现后仍满足维持保证金要求
+/// @dev Day 6: 提现时的维持保证金检查
+function _ensureWithdrawKeepsMaintenance(address trader, uint256 amount) internal view {
+    Position memory p = accounts[trader].position;
+
+    // 1. 如果没有持仓，直接返回
+    if (p.size == 0) return;
+
+    // 2. 计算提现后的 marginBalance
+    int256 marginAfter = int256(accounts[trader].margin) - int256(amount);
+    int256 unrealized = _unrealizedPnl(p);
+    int256 marginBalance = marginAfter + unrealized;
+
+    // 3. 计算持仓价值和维持保证金
+    uint256 priceBase = markPrice == 0 ? p.entryPrice : markPrice;
+    uint256 positionValue = SignedMath.abs(int256(priceBase) * p.size) / 1e18;
+    uint256 maintenance = (positionValue * maintenanceMarginBps) / 10_000;
+
+    // 4. require(marginBalance >= maintenance)
+    require(marginBalance >= int256(maintenance), "withdraw would trigger liquidation");
+}
+```
+
+预期行为：
+
+- 无持仓时提现不受限制
+- 有持仓时，提现后的保证金余额必须大于维持保证金
+- 如果提现会导致保证金不足，交易会 revert
+
+---
+
+### Step 6: 实现 FundingKeeper 定时结算
 
 修改：`keeper/src/services/FundingKeeper.ts`
 
@@ -244,7 +284,7 @@ private async checkAndSettle() {
 
 ---
 
-### Step 6: 前端资金费与强平展示
+### Step 7: 前端资金费与强平展示
 
 #### 6.1 在 Store 中计算预测资金费率
 在 `exchangeStore.tsx` 的 `refresh` 中增加币安公式计算：
@@ -370,16 +410,24 @@ cd contract
 forge test --match-contract Day6FundingTest -vvv
 ```
 
-通过标准：6 个测试全部 `PASS`
+通过标准：11 个测试全部 `PASS`
 
 测试用例覆盖：
 
+**资金费率测试：**
 1. `testFundingFlowsFromLongToShort` - Mark 高于 Index，多头付空头
 2. `testSettleFundingNoIndexPriceSkips` - Index 为 0 时跳过
 3. `testFundingAccumulatesAcrossIntervals` - 跨 interval 累加
 4. `testFundingSequentialEntrantsAccruesCorrectly` - 多用户分批进入
 5. `testFundingCapAndIntervalChange` - 费率上限保护
 6. `testFundingShortPaysWhenMarkBelowIndex` - 空头付多头
+
+**提现维持保证金测试（Step 5）：**
+7. `testWithdrawNoPositionAllowsFullWithdrawal` - 无持仓可全额提取
+8. `testWithdrawWithProfitablePositionSuccess` - 有盈利持仓提取成功
+9. `testWithdrawRevertsWhenWouldTriggerLiquidation` - 提取会触发清算时 revert
+10. `testWithdrawAtExactMaintenanceBoundary` - 刚好在维持保证金边界成功
+11. `testWithdrawOneWeiBelowMaintenanceReverts` - 比边界多提 1 wei 时 revert
 
 ### 6.2 前端验证
 

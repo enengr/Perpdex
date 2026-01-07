@@ -126,7 +126,7 @@ function deposit() external payable virtual nonReentrant {
    - Day1 不实现资金费公式（Day5 才做），但提前放钩子，保证架构可扩展
 3. 余额检查：`require(margin >= amount, "not enough margin");`
 4. 维护保证金检查钩子：`_ensureWithdrawKeepsMaintenance(msg.sender, amount);`
-   - Day1 不实现完整维持保证金逻辑（Day4/Day6 会补齐）
+   - Day1 不实现完整维持保证金逻辑（Day6 会补齐，见 Step 5）
 5. **先扣账再转账**（防重入）：`margin -= amount;` → `call{value: amount}("")`
 6. 发出事件 `MarginWithdrawn(msg.sender, amount)`
 
