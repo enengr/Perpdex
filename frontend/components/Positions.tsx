@@ -25,7 +25,7 @@ export const Positions: React.FC = observer(() => {
     // 已实现盈亏已结算到 freeMargin，无需额外计算
     const freeMargin = Number(formatEther(margin));
     const effectiveMargin = freeMargin;
-    const mmRatio = 0.005; // 0.5% 维持保证金率
+    const mmRatio = (Number(store.maintenanceMarginBps) + Number(store.liquidationFeeBps)) / 10000;
 
     let liqPrice = 0;
     if (size > 0) {
@@ -59,10 +59,9 @@ export const Positions: React.FC = observer(() => {
 
     const pnlPercent = initialMargin > 0 ? (pnl / initialMargin) * 100 : 0;
 
-    // TODO Day 7: 计算保证金率 (marginRatio)
-    // marginRatio = (freeMargin + pnl) / positionValue * 100
-    // 用于显示账户健康度
-    const marginRatio = 100; // 占位值，请实现计算逻辑
+    const marginBalance = freeMargin + pnl;
+    const positionValueForHealth = mark * absSize;
+    const marginRatio = positionValueForHealth === 0 ? 100 : (marginBalance / positionValueForHealth) * 100;
 
     return {
       symbol: 'ETH',
@@ -76,7 +75,7 @@ export const Positions: React.FC = observer(() => {
       marginRatio, // Day 7: 健康度
       side: size >= 0 ? 'long' : 'short',
     };
-  }, [margin, markPrice, position, store.initialMarginBps]);
+  }, [margin, markPrice, position, store.initialMarginBps, store.maintenanceMarginBps, store.liquidationFeeBps]);
 
   return (
     <div className="bg-[#10121B] rounded-xl border border-white/5 p-4 h-full flex flex-col">
@@ -113,7 +112,7 @@ export const Positions: React.FC = observer(() => {
                   <th className="pb-3 text-right">Entry Price</th>
                   <th className="pb-3 text-right">Mark Price</th>
                   <th className="pb-3 text-right">Liq. Price</th>
-                  {/* TODO Day 7: 添加 Health 列表头 */}
+                  <th className="pb-3 text-right">Health</th>
                   <th className="pb-3 text-right">PnL (ROE%)</th>
                 </tr>
               </thead>
@@ -137,12 +136,17 @@ export const Positions: React.FC = observer(() => {
                     <td className="py-3 text-right font-mono text-gray-300">{displayPosition.entryPrice.toLocaleString()}</td>
                     <td className="py-3 text-right font-mono text-gray-300">{displayPosition.markPrice.toLocaleString()}</td>
                     <td className="py-3 text-right font-mono text-nebula-orange">{displayPosition.liqPrice.toLocaleString(undefined, { maximumFractionDigits: 2 })}</td>
-                    {/* TODO Day 7: 添加 Health 列数据
-                        显示 marginRatio，根据值使用不同颜色：
-                        - 红色 (<2%): 危险
-                        - 黄色 (2-5%): 警告
-                        - 绿色 (>5%): 安全
-                    */}
+                    <td className="py-3 text-right font-mono">
+                      <span className={
+                        displayPosition.marginRatio < 2
+                          ? 'text-red-500'
+                          : displayPosition.marginRatio < 5
+                            ? 'text-yellow-500'
+                            : 'text-green-500'
+                      }>
+                        {displayPosition.marginRatio.toFixed(1)}%
+                      </span>
+                    </td>
                     <td className="py-3 text-right font-mono">
                       <div className={displayPosition.pnl >= 0 ? 'text-nebula-teal' : 'text-nebula-pink'}>
                         {displayPosition.pnl >= 0 ? '+' : ''}

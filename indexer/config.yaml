@@ -1,7 +1,31 @@
 # Envio Indexer Config
-# Day 5: TODO - 配置你的索引器
+name: monad-exchange-indexer
+description: Indexer for Monad Perpetual Exchange events
 
-# 提示: 你需要配置:
-# 1. 网络信息 (Monad Testnet/Anvil)
-# 2. 合约地址
-# 3. 需要监听的事件 (MarginDeposited, TradeExecuted, etc.)
+field_selection:
+  transaction_fields:
+    - hash
+
+contracts:
+  - name: Exchange
+    handler: src/EventHandlers.ts
+    events:
+      - event: MarginDeposited(address indexed trader, uint256 amount)
+      - event: MarginWithdrawn(address indexed trader, uint256 amount)
+      - event: OrderPlaced(uint256 indexed id, address indexed trader, bool isBuy, uint256 price, uint256 amount)
+      - event: OrderRemoved(uint256 indexed id)
+      - event: TradeExecuted(uint256 indexed buyOrderId, uint256 indexed sellOrderId, uint256 price, uint256 amount, address buyer, address seller)
+      - event: PositionUpdated(address indexed trader, int256 size, uint256 entryPrice)
+      - event: FundingUpdated(int256 cumulativeFundingRate, uint256 timestamp)
+      - event: FundingPaid(address indexed trader, int256 amount)
+      - event: Liquidated(address indexed trader, address indexed liquidator, uint256 amount, uint256 reward, uint256 price)
+
+networks:
+  - id: 31337  # Anvil local network
+    start_block: 0
+    rpc_config:
+      url: http://127.0.0.1:8545
+    contracts:
+      - name: Exchange
+        address:
+          - 0x1ff7a6a0f239e691587d1ee23340f0fc9cd759e8

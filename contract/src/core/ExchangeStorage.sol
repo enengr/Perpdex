@@ -134,7 +134,7 @@ abstract contract ExchangeStorage is AccessControl, ReentrancyGuard {
     
     /// @notice 保证金提现事件
     event MarginWithdrawn(address indexed trader, uint256 amount);
-    event Liquidated(address indexed trader, address indexed liquidator, uint256 amount, uint256 reward);
+    event Liquidated(address indexed trader, address indexed liquidator, uint256 amount, uint256 reward, uint256 price);
     
     /// @notice 订单创建事件
     event OrderPlaced(uint256 indexed id, address indexed trader, bool isBuy, uint256 price, uint256 amount);

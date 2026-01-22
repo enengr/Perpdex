@@ -1,4 +1,3 @@
-import { formatEther } from 'viem';
 import { walletClient, publicClient } from '../client';
 import { EXCHANGE_ABI } from '../abi';
 import { EXCHANGE_ADDRESS as ADDRESS } from '../config';
@@ -17,6 +16,9 @@ export class Liquidator {
     private intervalId: NodeJS.Timeout | null = null;
     private isRunning = false;
     private activeTraders = new Set<string>();
+    private isChecking = false;
+    private unwatchOrderPlaced?: () => void;
+    private unwatchTradeExecuted?: () => void;
 
     constructor(private intervalMs: number = 10000) { }
 
@@ -25,8 +27,31 @@ export class Liquidator {
         this.isRunning = true;
         console.log(`[Liquidator] Starting liquidation checks every ${this.intervalMs}ms...`);
 
-        // TODO: 实现事件监听
-        // 提示: 使用 publicClient.watchContractEvent 监听 OrderPlaced 和 TradeExecuted
+        this.unwatchOrderPlaced = publicClient.watchContractEvent({
+            address: ADDRESS as `0x${string}`,
+            abi: EXCHANGE_ABI,
+            eventName: 'OrderPlaced',
+            onLogs: (logs) => {
+                logs.forEach((log) => {
+                    const trader = (log as any).args?.trader as string | undefined;
+                    if (trader) this.activeTraders.add(trader.toLowerCase());
+                });
+            },
+        });
+
+        this.unwatchTradeExecuted = publicClient.watchContractEvent({
+            address: ADDRESS as `0x${string}`,
+            abi: EXCHANGE_ABI,
+            eventName: 'TradeExecuted',
+            onLogs: (logs) => {
+                logs.forEach((log) => {
+                    const buyer = (log as any).args?.buyer as string | undefined;
+                    const seller = (log as any).args?.seller as string | undefined;
+                    if (buyer) this.activeTraders.add(buyer.toLowerCase());
+                    if (seller) this.activeTraders.add(seller.toLowerCase());
+                });
+            },
+        });
 
         this.intervalId = setInterval(() => this.checkHealth(), this.intervalMs);
     }
@@ -35,6 +60,14 @@ export class Liquidator {
         if (this.intervalId) {
             clearInterval(this.intervalId);
             this.intervalId = null;
+        }
+        if (this.unwatchOrderPlaced) {
+            this.unwatchOrderPlaced();
+            this.unwatchOrderPlaced = undefined;
+        }
+        if (this.unwatchTradeExecuted) {
+            this.unwatchTradeExecuted();
+            this.unwatchTradeExecuted = undefined;
         }
         this.isRunning = false;
         console.log('[Liquidator] Stopped.');
@@ -58,12 +91,53 @@ export class Liquidator {
 
         console.log(`[Liquidator] Checking health for ${this.activeTraders.size} traders...`);
 
-        // TODO: 实现健康度检查逻辑
-        // 提示:
-        // - 使用 publicClient.readContract 读取 margin 和 getPosition
-        // - 使用 publicClient.simulateContract 测试是否可清算
-        // - 使用 walletClient.writeContract 执行清算
+        if (this.isChecking) return;
+        this.isChecking = true;
+        try {
+            for (const trader of Array.from(this.activeTraders)) {
+                try {
+                    const positionRaw = await publicClient.readContract({
+                        address: ADDRESS as `0x${string}`,
+                        abi: EXCHANGE_ABI,
+                        functionName: 'getPosition',
+                        args: [trader as `0x${string}`],
+                    }) as any;
 
-        console.log('[Liquidator] Health check not implemented yet.');
+                    const position = Array.isArray(positionRaw)
+                        ? { size: positionRaw[0] as bigint, entryPrice: positionRaw[1] as bigint }
+                        : positionRaw;
+
+                    if (!position || position.size === 0n) {
+                        this.activeTraders.delete(trader);
+                        continue;
+                    }
+
+                    const canLiquidate = await publicClient.readContract({
+                        address: ADDRESS as `0x${string}`,
+                        abi: EXCHANGE_ABI,
+                        functionName: 'canLiquidate',
+                        args: [trader as `0x${string}`],
+                    }) as boolean;
+
+                    if (!canLiquidate) continue;
+
+                    const { request } = await publicClient.simulateContract({
+                        address: ADDRESS as `0x${string}`,
+                        abi: EXCHANGE_ABI,
+                        functionName: 'liquidate',
+                        args: [trader as `0x${string}`, 0n],
+                        account: walletClient.account,
+                    });
+
+                    const hash = await walletClient.writeContract(request);
+                    await publicClient.waitForTransactionReceipt({ hash });
+                    console.log(`[Liquidator] Liquidated ${trader}, tx: ${hash}`);
+                } catch (e) {
+                    console.error(`[Liquidator] Error checking ${trader}:`, e);
+                }
+            }
+        } finally {
+            this.isChecking = false;
+        }
     }
 }

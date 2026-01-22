@@ -11,17 +11,23 @@ importers:
       dotenv:
         specifier: ^17.2.3
         version: 17.2.3
+      echarts:
+        specifier: ^5.5.0
+        version: 5.6.0
+      echarts-for-react:
+        specifier: ^3.0.2
+        version: 3.0.6(echarts@5.6.0)(react@19.2.0)
       graphql:
         specifier: ^16.12.0
         version: 16.12.0
       lightweight-charts:
-        specifier: ^5.0.9
+        specifier: ^5.1.0
         version: 5.1.0
       mobx:
-        specifier: ^6.12.0
+        specifier: ^6.15.0
         version: 6.15.0
       mobx-react-lite:
-        specifier: ^4.0.5
+        specifier: ^4.1.1
         version: 4.1.1(mobx@6.15.0)(react-dom@19.2.0(react@19.2.0))(react@19.2.0)
       react:
         specifier: ^19.2.0
@@ -40,16 +46,16 @@ importers:
         version: 2.43.5(typescript@5.8.3)
     devDependencies:
       '@types/node':
-        specifier: ^22.14.0
+        specifier: ^22.19.1
         version: 22.19.1
       '@vitejs/plugin-react':
-        specifier: ^5.0.0
+        specifier: ^5.1.1
         version: 5.1.1(vite@6.4.1(@types/node@22.19.1))
       typescript:
-        specifier: ~5.8.2
+        specifier: ~5.8.3
         version: 5.8.3
       vite:
-        specifier: ^6.2.0
+        specifier: ^6.4.1
         version: 6.4.1(@types/node@22.19.1)
 
 packages:
@@ -618,6 +624,15 @@ packages:
     resolution: {integrity: sha512-JVUnt+DUIzu87TABbhPmNfVdBDt18BLOWjMUFJMSi/Qqg7NTYtabbvSNJGOJ7afbRuv9D/lngizHtP7QyLQ+9w==}
     engines: {node: '>=12'}
 
+  echarts-for-react@3.0.6:
+    resolution: {integrity: sha512-4zqLgTGWS3JvkQDXjzkR1k1CHRdpd6by0988TWMJgnvDytegWLbeP/VNZmMa+0VJx2eD7Y632bi2JquXDgiGJg==}
+    peerDependencies:
+      echarts: ^3.0.0 || ^4.0.0 || ^5.0.0 || ^6.0.0
+      react: ^15.0.0 || >=16.0.0
+
+  echarts@5.6.0:
+    resolution: {integrity: sha512-oTbVTsXfKuEhxftHqL5xprgLoc0k7uScAwtryCgWF6hPYFLRwOUHiFmHGCBKP5NPFNkDVopOieyUqYGH8Fa3kA==}
+
   electron-to-chromium@1.5.262:
     resolution: {integrity: sha512-NlAsMteRHek05jRUxUR0a5jpjYq9ykk6+kO0yRaMi5moe7u0fVIOeQ3Y30A8dIiWFBNUoQGi1ljb1i5VtS9WQQ==}
 
@@ -638,6 +653,9 @@ packages:
 
   fancy-canvas@2.1.0:
     resolution: {integrity: sha512-nifxXJ95JNLFR2NgRV4/MxVP45G9909wJTEKz5fg/TZS20JJZA6hfgRVh/bC9bwl2zBtBNcYPjiBE4njQHVBwQ==}
+
+  fast-deep-equal@3.1.3:
+    resolution: {integrity: sha512-f3qQ9oQy9j2AhBe/H9VC91wLmKBCCU/gDOnKNAYG5hswO7BLKj09Hc5HYNz9cGI++xlpDCIgDaitVs03ATR84Q==}
 
   fdir@6.5.0:
     resolution: {integrity: sha512-tIbYtZbucOs0BRGqPJkshJUYdL+SDH7dVM8gjy+ERp3WAUjLEFJE+02kanyHtwjWOnwrKYBiwAmM0p4kLJAnXg==}
@@ -800,6 +818,9 @@ packages:
     resolution: {integrity: sha512-BR7VvDCVHO+q2xBEWskxS6DJE1qRnb7DxzUrogb71CWoSficBxYsiAGd+Kl0mmq/MprG9yArRkyrQxTO6XjMzA==}
     hasBin: true
 
+  size-sensor@1.0.3:
+    resolution: {integrity: sha512-+k9mJ2/rQMiRmQUcjn+qznch260leIXY8r4FyYKKyRBO/s5UoeMAHGkCJyE1R/4wrIhTJONfyloY55SkE7ve3A==}
+
   source-map-js@1.2.1:
     resolution: {integrity: sha512-UXWMKhLOwVKb728IUtQPXxfYU+usdybtUrK/8uGE8CQMvrhOpwvzDBwj0QhSL7MQc7vIsISBG8VQ8+IDQxpfQA==}
     engines: {node: '>=0.10.0'}
@@ -810,6 +831,9 @@ packages:
   tinyglobby@0.2.15:
     resolution: {integrity: sha512-j2Zq4NyQYG5XMST4cbs02Ak8iJUdxRM0XI5QyxXuZOzKOINmWurp3smXu3y5wDcJrptwpSjgXHzIQxR0omXljQ==}
     engines: {node: '>=12.0.0'}
+
+  tslib@2.3.0:
+    resolution: {integrity: sha512-N82ooyxVNm6h1riLCoyS9e3fuJ3AMG2zIZs2Gd1ATcSFjSA23Q0fzjjZeh0jbJvWVDZ0cJT8yaNNaaXHzueNjg==}
 
   typescript@5.8.3:
     resolution: {integrity: sha512-p1diW6TqL9L07nNxvRMM7hMMw4c5XOo/1ibL4aAIGmSAt9slTE1Xgw5KWuof2uTOvCg9BY7ZRi+GaF+7sfgPeQ==}
@@ -904,6 +928,9 @@ packages:
 
   yallist@3.1.1:
     resolution: {integrity: sha512-a4UGQaWPH59mOXUYnAG2ewncQS4i4F43Tv3JoAM+s2VDAmS9NsK8GpDMLrCHPksFT7h3K6TOoUNn2pb7RoXx4g==}
+
+  zrender@5.6.1:
+    resolution: {integrity: sha512-OFXkDJKcrlx5su2XbzJvj/34Q3m6PvyCZkVPHGYpcCJ52ek4U/ymZyfuV1nKE23AyBJ51E/6Yr0mhZ7xGTO4ag==}
 
 snapshots:
 
@@ -1365,6 +1392,18 @@ snapshots:
 
   dotenv@17.2.3: {}
 
+  echarts-for-react@3.0.6(echarts@5.6.0)(react@19.2.0):
+    dependencies:
+      echarts: 5.6.0
+      fast-deep-equal: 3.1.3
+      react: 19.2.0
+      size-sensor: 1.0.3
+
+  echarts@5.6.0:
+    dependencies:
+      tslib: 2.3.0
+      zrender: 5.6.1
+
   electron-to-chromium@1.5.262: {}
 
   es-toolkit@1.42.0: {}
@@ -1403,6 +1442,8 @@ snapshots:
   eventemitter3@5.0.1: {}
 
   fancy-canvas@2.1.0: {}
+
+  fast-deep-equal@3.1.3: {}
 
   fdir@6.5.0(picomatch@4.0.3):
     optionalDependencies:
@@ -1559,6 +1600,8 @@ snapshots:
 
   semver@6.3.1: {}
 
+  size-sensor@1.0.3: {}
+
   source-map-js@1.2.1: {}
 
   tiny-invariant@1.3.3: {}
@@ -1567,6 +1610,8 @@ snapshots:
     dependencies:
       fdir: 6.5.0(picomatch@4.0.3)
       picomatch: 4.0.3
+
+  tslib@2.3.0: {}
 
   typescript@5.8.3: {}
 
@@ -1639,3 +1684,7 @@ snapshots:
   ws@8.18.3: {}
 
   yallist@3.1.1: {}
+
+  zrender@5.6.1:
+    dependencies:
+      tslib: 2.3.0

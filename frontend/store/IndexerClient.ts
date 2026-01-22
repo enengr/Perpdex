@@ -93,3 +93,28 @@ export const GET_MY_TRADES = `
     }
   }
 `;
+
+export const GET_LIQUIDATIONS = `
+  query GetLiquidations($start: Int!) {
+    Liquidation(where: { timestamp: { _gte: $start } }, order_by: { timestamp: asc }) {
+      id
+      trader
+      liquidator
+      amount
+      fee
+      price
+      timestamp
+      txHash
+    }
+  }
+`;
+
+export const GET_ALL_POSITIONS = `
+  query GetAllPositions {
+    Position(where: { size: { _neq: "0" } }) {
+      trader
+      size
+      entryPrice
+    }
+  }
+`;

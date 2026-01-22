@@ -15,6 +15,7 @@ import { EXCHANGE_ADDRESS as ADDRESS } from '../config';
 export class PriceKeeper {
     private intervalId: NodeJS.Timeout | null = null;
     private isRunning = false;
+    private isUpdating = false;
 
     // Pyth ETH/USD Price Feed ID
     private readonly PYTH_ETH_ID = '0xff61491a931112ddf1bd8147cd1b641375f79f5825126d665480874634fd0ace';
@@ -45,12 +46,37 @@ export class PriceKeeper {
      * TODO: 实现此函数，参考 day4-guide.md Step 5
      */
     private async updatePrice() {
+        if (this.isUpdating) return;
+        this.isUpdating = true;
         try {
-            // TODO: 实现价格更新逻辑
-            console.log(`[PriceKeeper] TODO: Implement price fetching from Pyth`);
+            const res = await fetch(`https://hermes.pyth.network/v2/updates/price/latest?ids[]=${this.PYTH_ETH_ID}`);
+            if (!res.ok) throw new Error(`Pyth fetch failed: ${res.status}`);
+            const data = await res.json();
+            const priceInfo = data?.parsed?.[0]?.price;
+            if (!priceInfo) throw new Error('Invalid Pyth response');
 
+            const p = BigInt(priceInfo.price);
+            const expo = Number(priceInfo.expo);
+            const exponent = 18 + expo;
+            const priceWei = exponent >= 0
+                ? p * (10n ** BigInt(exponent))
+                : p / (10n ** BigInt(-exponent));
+
+            const displayPrice = Number(p) * Math.pow(10, expo);
+            console.log(`[PriceKeeper] Fetched ETH price: $${displayPrice} -> ${priceWei} wei`);
+
+            const hash = await walletClient.writeContract({
+                address: ADDRESS as `0x${string}`,
+                abi: EXCHANGE_ABI,
+                functionName: 'updateIndexPrice',
+                args: [priceWei],
+            });
+            await publicClient.waitForTransactionReceipt({ hash });
+            console.log(`[PriceKeeper] Price updated on-chain, tx: ${hash}`);
         } catch (e) {
             console.error('[PriceKeeper] Error updating price:', e);
+        } finally {
+            this.isUpdating = false;
         }
     }
 }

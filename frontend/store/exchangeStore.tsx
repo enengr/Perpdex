@@ -5,8 +5,7 @@ import { EXCHANGE_ABI } from '../onchain/abi';
 import { EXCHANGE_ADDRESS, EXCHANGE_DEPLOY_BLOCK } from '../onchain/config';
 import { chain, getWalletClient, publicClient, fallbackAccount, ACCOUNTS } from '../onchain/client';
 import { OrderBookItem, OrderSide, OrderType, PositionSnapshot, Trade, CandleData } from '../types';
-// Day 2 TODO: 取消注释以启用 IndexerClient
-// import { client, GET_CANDLES, GET_RECENT_TRADES, GET_POSITIONS, GET_OPEN_ORDERS, GET_MY_TRADES } from './IndexerClient';
+import { client, GET_CANDLES, GET_MY_TRADES, GET_OPEN_ORDERS, GET_RECENT_TRADES } from './IndexerClient';
 
 type OrderStruct = {
   id: bigint;
@@ -43,6 +42,8 @@ class ExchangeStore {
   markPrice = 0n;
   indexPrice = 0n;
   initialMarginBps = 100n; // Default 1%
+  maintenanceMarginBps = 50n; // Default 0.5%
+  liquidationFeeBps = 125n; // Default 1.25%
   fundingRate = 0; // Estimated hourly funding rate
   orderBook: OrderBookState = { bids: [], asks: [] };
   trades: Trade[] = [];
@@ -138,6 +139,16 @@ class ExchangeStore {
     return data as OrderStruct;
   }
 
+  mapPosition(data: any): PositionSnapshot {
+    if (data && typeof data.size !== 'undefined') {
+      return { size: data.size, entryPrice: data.entryPrice };
+    }
+    if (Array.isArray(data)) {
+      return { size: data[0], entryPrice: data[1] };
+    }
+    return data as PositionSnapshot;
+  }
+
   loadOrderChain = async (headId?: bigint | null) => {
     const head: OrderStruct[] = [];
     if (!headId || headId === 0n) return head;
@@ -202,55 +213,82 @@ class ExchangeStore {
   // Day 5 TODO: 从 Indexer 获取 K 线数据
   // ============================================
   loadCandles = async () => {
-    // TODO: Day 5 - 实现从 Indexer 获取 K 线数据
-    // 步骤:
-    // 1. 使用 client.query(GET_CANDLES, {}).toPromise() 查询
-    // 2. 从 result.data?.Candle 获取蜡烛图数组
-    // 3. 转换为 CandleData 格式 (time, open, high, low, close)
-    //    注意: time 需要转为 ISO 字符串: new Date(c.timestamp * 1000).toISOString()
-    // 4. 使用 runInAction 更新 this.candles
+    const result = await client.query(GET_CANDLES, {}).toPromise();
+    if (!result.data?.Candle) {
+      runInAction(() => { this.candles = []; });
+      return;
+    }
+    const candles = result.data.Candle.map((c: any) => ({
+      time: new Date(c.timestamp * 1000).toISOString(),
+      open: Number(formatEther(c.openPrice)),
+      high: Number(formatEther(c.highPrice)),
+      low: Number(formatEther(c.lowPrice)),
+      close: Number(formatEther(c.closePrice)),
+      volume: Number(formatEther(c.volume)),
+    }));
+    runInAction(() => { this.candles = candles; });
   };
 
   // ============================================
   // Day 5 TODO: 从 Indexer 获取最近成交
   // ============================================
   loadTrades = async (): Promise<Trade[]> => {
-    // TODO: Day 5 - 实现从 Indexer 获取最近成交
-    // 步骤:
-    // 1. 使用 client.query(GET_RECENT_TRADES, {}).toPromise() 查询
-    // 2. 从 result.data?.Trade 获取成交数组
-    // 3. 转换为 Trade 格式 (id, price, amount, time, side)
-    // 4. side 判断: BigInt(buyOrderId) > BigInt(sellOrderId) ? 'buy' : 'sell'
-    // 5. 使用 runInAction 更新 this.trades
-    return [];
+    const result = await client.query(GET_RECENT_TRADES, {}).toPromise();
+    if (!result.data?.Trade) {
+      runInAction(() => { this.trades = []; });
+      return [];
+    }
+    const trades = result.data.Trade.map((t: any) => ({
+      id: t.id,
+      price: Number(formatEther(t.price)),
+      amount: Number(formatEther(t.amount)),
+      time: new Date(t.timestamp * 1000).toLocaleTimeString(),
+      side: BigInt(t.buyOrderId) > BigInt(t.sellOrderId) ? 'buy' : 'sell',
+      buyer: t.buyer,
+      seller: t.seller,
+      txHash: t.txHash,
+    }));
+    runInAction(() => { this.trades = trades; });
+    return trades;
   };
 
   // ============================================
   // Day 2 TODO: 从 Indexer 获取用户订单
   // ============================================
   loadMyOrders = async (trader: Address): Promise<OpenOrder[]> => {
-    // TODO: Day 2 - 实现从 Indexer 获取用户 OPEN 状态的订单
-    // 步骤:
-    // 1. 使用 client.query(GET_OPEN_ORDERS, { trader }).toPromise() 查询
-    // 2. 从 result.data?.Order 获取订单数组
-    // 3. 将返回的数据转换为 OpenOrder[] 格式
-    // 4. 注意将 string 类型转换为 bigint (使用 BigInt())
-
-    return []; // TODO: 移除这行，实现上面的逻辑
+    const result = await client.query(GET_OPEN_ORDERS, { trader: trader.toLowerCase() }).toPromise();
+    const orders = result.data?.Order || [];
+    return orders.map((o: any) => ({
+      id: BigInt(o.id),
+      isBuy: o.isBuy,
+      price: BigInt(o.price),
+      amount: BigInt(o.amount),
+      initialAmount: BigInt(o.initialAmount),
+      timestamp: BigInt(o.timestamp),
+      trader: trader,
+    }));
   };
 
   // ============================================
   // Day 5 TODO: 从 Indexer 获取用户的成交历史
   // ============================================
   loadMyTrades = async (trader: Address): Promise<Trade[]> => {
-    // TODO: Day 5 - 实现从 Indexer 获取用户成交历史
-    // 步骤:
-    // 1. 使用 client.query(GET_MY_TRADES, { trader: trader.toLowerCase() }).toPromise() 查询
-    // 2. 从 result.data?.Trade 获取成交数组
-    // 3. 转换为 Trade 格式 (id, price, amount, time, side)
-    // 4. side 判断: t.buyer.toLowerCase() === trader.toLowerCase() ? 'buy' : 'sell'
-    // 5. 使用 runInAction 更新 this.myTrades
-    return [];
+    const result = await client.query(GET_MY_TRADES, { trader: trader.toLowerCase() }).toPromise();
+    if (!result.data?.Trade) {
+      runInAction(() => { this.myTrades = []; });
+      return [];
+    }
+    const trades = result.data.Trade.map((t: any) => ({
+      id: t.id,
+      price: Number(formatEther(t.price)),
+      amount: Number(formatEther(t.amount)),
+      time: new Date(t.timestamp * 1000).toLocaleTimeString(),
+      side: t.buyer.toLowerCase() === trader.toLowerCase() ? 'buy' : 'sell',
+      buyer: t.buyer,
+      seller: t.seller,
+    }));
+    runInAction(() => { this.myTrades = trades; });
+    return trades;
   };
 
   refresh = async (silent = false) => {
@@ -262,49 +300,57 @@ class ExchangeStore {
         });
       }
       const address = this.ensureContract();
-      const [mark, index, bestBid, bestAsk, imBps] = await Promise.all([
+      const [mark, index, bestBid, bestAsk, imBps, mmBps, liqFeeBps] = await Promise.all([
         publicClient.readContract({ abi: EXCHANGE_ABI, address, functionName: 'markPrice' } as any) as Promise<bigint>,
         publicClient.readContract({ abi: EXCHANGE_ABI, address, functionName: 'indexPrice' } as any) as Promise<bigint>,
         publicClient.readContract({ abi: EXCHANGE_ABI, address, functionName: 'bestBuyId' } as any) as Promise<bigint>,
         publicClient.readContract({ abi: EXCHANGE_ABI, address, functionName: 'bestSellId' } as any) as Promise<bigint>,
         publicClient.readContract({ abi: EXCHANGE_ABI, address, functionName: 'initialMarginBps' } as any) as Promise<bigint>,
+        publicClient.readContract({ abi: EXCHANGE_ABI, address, functionName: 'maintenanceMarginBps' } as any) as Promise<bigint>,
+        publicClient.readContract({ abi: EXCHANGE_ABI, address, functionName: 'liquidationFeeBps' } as any) as Promise<bigint>,
       ]);
       console.debug('[orderbook] head ids', {
         bestBid: bestBid?.toString?.(),
         bestAsk: bestAsk?.toString?.(),
         address,
       });
+      let computedFundingRate = 0;
+      const indexNumber = Number(formatEther(index));
+      if (indexNumber > 0) {
+        const markNumber = Number(formatEther(mark));
+        const premiumIndex = (markNumber - indexNumber) / indexNumber;
+        const interestRate = 0.0001;
+        const clampRange = 0.0005;
+        let diff = interestRate - premiumIndex;
+        if (diff > clampRange) diff = clampRange;
+        if (diff < -clampRange) diff = -clampRange;
+        computedFundingRate = premiumIndex + diff;
+      }
       runInAction(() => {
         this.markPrice = mark;
         this.indexPrice = index;
         this.initialMarginBps = imBps;
-        // Funding Rate calculation to be implemented in Day 6
-        this.fundingRate = 0;
+        this.maintenanceMarginBps = mmBps;
+        this.liquidationFeeBps = liqFeeBps;
+        this.fundingRate = computedFundingRate;
       });
 
       if (this.account) {
-        // ============================================
-        // Day 1 TODO: 读取用户保证金余额
-        // ============================================
-        // TODO: Day 1 - 使用 publicClient.readContract 读取保证金余额
-        // 步骤:
-        // 1. 调用 publicClient.readContract 读取 margin 函数
-        // 2. 传入参数 args: [this.account]
-        // 3. 使用 runInAction 更新 this.margin
-
-        // 参考代码:
-        // const m = await publicClient.readContract({
-        //   abi: EXCHANGE_ABI,
-        //   address,
-        //   functionName: 'margin',
-        //   args: [this.account],
-        // } as any) as bigint;
-        // runInAction(() => { this.margin = m; });
-
-        const m = 0n; // TODO: 移除这行，实现上面的代码
-
-        // Position fetching from Indexer to be implemented in Day 5
-        let pos: PositionSnapshot = { size: 0n, entryPrice: 0n };
+        const [m, posRaw] = await Promise.all([
+          publicClient.readContract({
+            abi: EXCHANGE_ABI,
+            address,
+            functionName: 'margin',
+            args: [this.account],
+          } as any) as Promise<bigint>,
+          publicClient.readContract({
+            abi: EXCHANGE_ABI,
+            address,
+            functionName: 'getPosition',
+            args: [this.account],
+          } as any) as Promise<PositionSnapshot>,
+        ]);
+        const pos = this.mapPosition(posRaw);
 
         runInAction(() => {
           this.margin = m;
@@ -367,31 +413,19 @@ class ExchangeStore {
         this.orderBook = { bids: this.formatOrderBook(bids, true), asks: this.formatOrderBook(asks, false) };
       });
 
-      // Load Trades (Day 5)
-      // await this.loadTrades();
+      await this.loadTrades();
+      await this.loadCandles();
 
-      // Load Candles (Day 5)
-      // this.loadCandles();
-
-      // ============================================
-      // Day 2 TODO: 从 Indexer 获取我的订单
-      // ============================================
-      // TODO: Day 2 - 调用 loadMyOrders 获取用户订单
-      // if (this.account) {
-      //   const orders = await this.loadMyOrders(this.account);
-      //   runInAction(() => { this.myOrders = orders; });
-      // }
-      runInAction(() => {
-        this.myOrders = [];
-      });
-
-      // ============================================
-      // Day 5 TODO: 从 Indexer 获取我的成交历史
-      // ============================================
-      // TODO: Day 5 - 调用 loadMyTrades 获取用户成交历史
-      // if (this.account) {
-      //   await this.loadMyTrades(this.account);
-      // }
+      if (this.account) {
+        const orders = await this.loadMyOrders(this.account);
+        runInAction(() => { this.myOrders = orders; });
+        await this.loadMyTrades(this.account);
+      } else {
+        runInAction(() => {
+          this.myOrders = [];
+          this.myTrades = [];
+        });
+      }
     } catch (e) {
       if (!silent) {
         runInAction(() => (this.error = (e as Error)?.message || 'Failed to sync exchange data'));
@@ -407,63 +441,93 @@ class ExchangeStore {
   // Day 1 TODO: 实现充值函数
   // ============================================
   deposit = async (ethAmount: string) => {
-    // TODO: Day 1 - 实现充值功能
-    // 步骤:
-    // 1. 检查钱包是否连接: if (!this.walletClient || !this.account) throw new Error(...)
-    // 2. 调用合约的 deposit 函数，传入 value
-    // 3. 等待交易回执: await publicClient.waitForTransactionReceipt({ hash })
-    // 4. 检查交易状态: if (receipt.status !== 'success') throw new Error(...)
-    // 5. 刷新数据: await this.refresh()
-
-    // 提示: 参考下面的 withdraw 函数结构，但 deposit 需要 value 参数
-    throw new Error('deposit 功能尚未实现，请完成 Day1 练习');
+    if (!this.walletClient || !this.account) throw new Error('Connect wallet before depositing');
+    const hash = await this.walletClient.writeContract({
+      account: this.account,
+      chain: this.walletClient.chain,
+      address: this.ensureContract(),
+      abi: EXCHANGE_ABI,
+      functionName: 'deposit',
+      value: parseEther(ethAmount || '0'),
+    } as any);
+    const receipt = await publicClient.waitForTransactionReceipt({ hash });
+    if (receipt.status !== 'success') throw new Error('Transaction failed');
+    await this.refresh();
   };
 
   // ============================================
   // Day 1 TODO: 实现提现函数
   // ============================================
   withdraw = async (amount: string) => {
-    // TODO: Day 1 - 实现提现功能
-    // 步骤:
-    // 1. 检查钱包是否连接: if (!this.walletClient || !this.account) throw new Error(...)
-    // 2. 解析金额: const parsed = parseEther(amount || '0')
-    // 3. 调用合约的 withdraw 函数，传入 args: [parsed]
-    // 4. 等待交易回执: await publicClient.waitForTransactionReceipt({ hash })
-    // 5. 检查交易状态: if (receipt.status !== 'success') throw new Error(...)
-    // 6. 刷新数据: await this.refresh()
-
-    throw new Error('withdraw 功能尚未实现，请完成 Day1 练习');
+    if (!this.walletClient || !this.account) throw new Error('Connect wallet before withdrawing');
+    const parsed = parseEther(amount || '0');
+    const hash = await this.walletClient.writeContract({
+      account: this.account,
+      chain: this.walletClient.chain,
+      address: this.ensureContract(),
+      abi: EXCHANGE_ABI,
+      functionName: 'withdraw',
+      args: [parsed],
+    });
+    const receipt = await publicClient.waitForTransactionReceipt({ hash });
+    if (receipt.status !== 'success') throw new Error('Transaction failed');
+    await this.refresh();
   };
 
   // ============================================
   // Day 2 TODO: 实现下单函数
   // ============================================
   placeOrder = async (params: { side: OrderSide; orderType?: OrderType; price?: string; amount: string; hintId?: string }) => {
-    // TODO: Day 2 - 实现下单功能
-    // 步骤:
-    // 1. 检查钱包连接: if (!this.walletClient || !this.account) throw new Error(...)
-    // 2. 解析参数: const { side, orderType, price, amount, hintId } = params
-    // 3. 处理市价单价格（使用 markPrice 加滑点）
-    // 4. 调用合约 placeOrder(isBuy, price, amount, hintId)
-    // 5. 等待交易确认并刷新数据
+    const { side, orderType = OrderType.LIMIT, price, amount, hintId } = params;
+    if (!this.walletClient || !this.account) throw new Error('Connect wallet before placing orders');
 
-    throw new Error('placeOrder 功能尚未实现，请完成 Day2 练习');
+    const currentPrice = this.markPrice > 0n ? this.markPrice : parseEther('1500');
+    const parsedPrice = price ? parseEther(price) : currentPrice;
+    const effectivePrice =
+      orderType === OrderType.MARKET
+        ? side === OrderSide.BUY
+          ? currentPrice + parseEther('100')
+          : currentPrice > parseEther('100') ? currentPrice - parseEther('100') : 1n
+        : parsedPrice;
+
+    const parsedAmount = parseEther(amount);
+    const parsedHint = hintId ? BigInt(hintId) : 0n;
+
+    const hash = await this.walletClient.writeContract({
+      account: this.account,
+      address: this.ensureContract(),
+      abi: EXCHANGE_ABI,
+      functionName: 'placeOrder',
+      args: [side === OrderSide.BUY, effectivePrice, parsedAmount, parsedHint],
+      chain: undefined,
+    } as any);
+
+    const receipt = await publicClient.waitForTransactionReceipt({ hash });
+    if (receipt.status !== 'success') throw new Error('Transaction failed');
+    await this.refresh();
   }
 
   // ============================================
   // Day 2 TODO: 实现取消订单函数
   // ============================================
   cancelOrder = async (orderId: bigint) => {
-    // TODO: Day 2 - 实现取消订单功能
-    // 步骤:
-    // 1. 检查钱包连接
-    // 2. 设置 cancellingOrderId 状态（用于 UI 显示 loading）
-    // 3. 调用合约 cancelOrder(orderId)
-    // 4. 等待交易确认
-    // 5. 刷新数据
-    // 6. 清除 cancellingOrderId 状态（在 finally 中）
-
-    throw new Error('cancelOrder 功能尚未实现，请完成 Day2 练习');
+    if (!this.walletClient || !this.account) throw new Error('Connect wallet before cancelling orders');
+    runInAction(() => { this.cancellingOrderId = orderId; });
+    try {
+      const hash = await this.walletClient.writeContract({
+        account: this.account,
+        address: this.ensureContract(),
+        abi: EXCHANGE_ABI,
+        functionName: 'cancelOrder',
+        args: [orderId],
+        chain: undefined,
+      } as any);
+      const receipt = await publicClient.waitForTransactionReceipt({ hash });
+      if (receipt.status !== 'success') throw new Error('Transaction failed');
+      await this.refresh();
+    } finally {
+      runInAction(() => { this.cancellingOrderId = undefined; });
+    }
   }
 }
 

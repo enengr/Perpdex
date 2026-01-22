@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # 一键启动 anvil、部署合约，最后把 anvil 留在前台（Ctrl+C 关闭）。
 set -euo pipefail
+export PATH="$HOME/.foundry/bin:$PATH"
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CONTRACT_DIR="$ROOT_DIR/contract"
@@ -10,6 +11,7 @@ RPC_URL="http://127.0.0.1:8545"
 CHAIN_ID="31337"
 PORT="8545"
 LOG_FILE="$ROOT_DIR/output/logs/anvil.log"
+mkdir -p "$(dirname "$LOG_FILE")"
 
 # anvil 默认私钥（账户 #0）
 PRIVATE_KEY="0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
@@ -121,7 +123,11 @@ EOF
       # Use sed to replace the address (assuming standard formatting)
       # We look for the line with the address and replace it
       # Note: This is a simple replacement, assuming the file structure doesn't change drastically
-      sed -i '' "s/0x[a-fA-F0-9]\{40\}/$EXCHANGE_ADDR/" "$INDEXER_CONFIG"
+      if sed --version >/dev/null 2>&1; then
+        sed -i "s/0x[a-fA-F0-9]\{40\}/$EXCHANGE_ADDR/" "$INDEXER_CONFIG"
+      else
+        sed -i '' "s/0x[a-fA-F0-9]\{40\}/$EXCHANGE_ADDR/" "$INDEXER_CONFIG"
+      fi
       echo "已更新 indexer/config.yaml (exchange=$EXCHANGE_ADDR)"
     else
       echo "未找到 indexer/config.yaml，跳过更新"

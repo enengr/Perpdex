@@ -1,30 +1,18 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { observer } from 'mobx-react-lite';
 import { useExchangeStore } from '../store/exchangeStore';
-import { createChart, ColorType, CrosshairMode, IChartApi, ISeriesApi, CandlestickSeries } from 'lightweight-charts';
-import { formatEther } from 'viem';
+import { createChart, ColorType, CrosshairMode, IChartApi, ISeriesApi, CandlestickSeries, HistogramSeries } from 'lightweight-charts';
+import { DepthChart } from './DepthChart';
+import { LiquidationHeatmap } from './LiquidationHeatmap';
 
 export const TradingChart: React.FC = observer(() => {
-  const { candles, currentPrice } = useExchangeStore();
+  const { candles } = useExchangeStore();
   console.log('[TradingChart] candles from store:', candles);
   const chartContainerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const seriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
-
-  // Sort candles by time (ascending) for TradingView
-  // Indexer returns descending, so we reverse.
-  // We also need to ensure unique timestamps if any.
-  const sortedCandles = [...candles]
-    .reverse()
-    .map(c => ({
-      time: c.time.split('T')[0] === new Date().toISOString().split('T')[0]
-        ? (new Date(c.time).getTime() / 1000) as any // Use timestamp for intraday
-        : c.time.split('T')[0], // Use string for daily? Actually for 1m candles timestamp is best.
-      open: c.open,
-      high: c.high,
-      low: c.low,
-      close: c.close,
-    }));
+  const volumeSeriesRef = useRef<ISeriesApi<'Histogram'> | null>(null);
+  const [viewMode, setViewMode] = useState<'price' | 'depth' | 'heatmap'>('price');
 
   // Fix: lightweight-charts prefers unix timestamp (seconds) for intraday data
   const chartData = [...candles].reverse().map(c => ({
@@ -33,6 +21,11 @@ export const TradingChart: React.FC = observer(() => {
     high: c.high,
     low: c.low,
     close: c.close,
+  }));
+  const volumeData = [...candles].reverse().map(c => ({
+    time: Math.floor(new Date(c.time).getTime() / 1000) as any,
+    value: c.volume,
+    color: c.close >= c.open ? '#00E0FF' : '#FF409A',
   }));
 
   useEffect(() => {
@@ -57,9 +50,18 @@ export const TradingChart: React.FC = observer(() => {
         timeVisible: true,
         secondsVisible: false,
       },
+      leftPriceScale: {
+        visible: true,
+        borderColor: '#4B5563',
+        ticksVisible: true,
+        scaleMargins: { top: 0.8, bottom: 0.02 },
+      },
       rightPriceScale: {
         borderColor: '#4B5563',
       },
+    });
+    chart.priceScale('right').applyOptions({
+      scaleMargins: { top: 0.12, bottom: 0.28 },
     });
 
     const candlestickSeries = chart.addSeries(CandlestickSeries, {
@@ -70,8 +72,18 @@ export const TradingChart: React.FC = observer(() => {
       wickDownColor: '#FF409A',
     });
 
+    const volumeSeries = chart.addSeries(HistogramSeries, {
+      priceFormat: { type: 'volume' },
+      priceScaleId: 'left',
+      color: 'rgba(255, 255, 255, 0.35)',
+      priceLineVisible: false,
+      lastValueVisible: false,
+    });
+
     candlestickSeries.setData(chartData);
+    volumeSeries.setData(volumeData);
     seriesRef.current = candlestickSeries;
+    volumeSeriesRef.current = volumeSeries;
 
     // Add current price line if we have data
     if (chartData.length > 0) {
@@ -99,13 +111,14 @@ export const TradingChart: React.FC = observer(() => {
   useEffect(() => {
     if (!seriesRef.current) return;
     seriesRef.current.setData(chartData);
+    volumeSeriesRef.current?.setData(volumeData);
     if (chartRef.current) {
       chartRef.current.timeScale().fitContent();
     }
   }, [candles]); // Re-run when candles change.
 
   return (
-    <div className="flex flex-col h-full bg-[#1A1D26] rounded-lg border border-gray-800 p-4">
+    <div className="flex flex-col h-full bg-[#1A1D26] rounded-lg border border-gray-800 p-4 relative">
       <div className="flex justify-between items-center mb-4">
         <div className="flex items-center gap-4">
           <h2 className="text-lg font-semibold text-white">ETH/USD</h2>
@@ -121,13 +134,56 @@ export const TradingChart: React.FC = observer(() => {
         </div>
       </div>
 
+      <div className="absolute top-4 right-4 z-20 bg-[#0E111A] border border-white/10 rounded-full p-1 flex gap-1">
+        <button
+          onClick={() => setViewMode('price')}
+          className={`text-xs px-3 py-1 rounded-full transition ${
+            viewMode === 'price'
+              ? 'bg-white/10 text-white'
+              : 'text-gray-400 hover:text-white'
+          }`}
+        >
+          Price
+        </button>
+        <button
+          onClick={() => setViewMode('depth')}
+          className={`text-xs px-3 py-1 rounded-full transition ${
+            viewMode === 'depth'
+              ? 'bg-white/10 text-white'
+              : 'text-gray-400 hover:text-white'
+          }`}
+        >
+          Depth
+        </button>
+        <button
+          onClick={() => setViewMode('heatmap')}
+          className={`text-xs px-3 py-1 rounded-full transition ${
+            viewMode === 'heatmap'
+              ? 'bg-white/10 text-white'
+              : 'text-gray-400 hover:text-white'
+          }`}
+        >
+          Liq. Map
+        </button>
+      </div>
+
       <div className="flex-1 w-full min-h-0 relative">
-        <div ref={chartContainerRef} className="w-full h-full" />
-        {chartData.length === 0 && (
-          <div className="absolute inset-0 flex items-center justify-center text-gray-500 text-sm pointer-events-none">
-            Waiting for data...
-          </div>
-        )}
+        <div className={viewMode === 'price' ? 'w-full h-full' : 'hidden'}>
+          <div ref={chartContainerRef} className="w-full h-full" />
+          {chartData.length === 0 && (
+            <div className="absolute inset-0 flex items-center justify-center text-gray-500 text-sm pointer-events-none">
+              Waiting for data...
+            </div>
+          )}
+        </div>
+
+        <div className={viewMode === 'depth' ? 'w-full h-full' : 'hidden'}>
+          <DepthChart />
+        </div>
+
+        <div className={viewMode === 'heatmap' ? 'w-full h-full' : 'hidden'}>
+          <LiquidationHeatmap />
+        </div>
       </div>
     </div>
   );
