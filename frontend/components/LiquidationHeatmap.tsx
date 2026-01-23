@@ -33,6 +33,17 @@ const PRICE_STEP = 10;
 const VISUAL_MAX = 1000;
 const DEFAULT_PRICE = 3000;
 const MAX_TIME_POINTS = 96;
+const INTENSITY_GAMMA = 1.25;
+
+const formatUtcLabel = (isoTime: string) => {
+  const iso = new Date(isoTime).toISOString();
+  return iso.slice(11, 16);
+};
+
+const formatUtcTooltip = (isoTime: string) => {
+  const iso = new Date(isoTime).toISOString();
+  return iso.slice(0, 19).replace('T', ' ');
+};
 
 const buildTimeLabels = (candles: { time: string }[]) => {
   if (candles.length === 0) {
@@ -41,10 +52,8 @@ const buildTimeLabels = (candles: { time: string }[]) => {
 
   const ordered = [...candles].reverse();
   const sliced = ordered.slice(-MAX_TIME_POINTS);
-  const timeLabels = sliced.map((c) =>
-    new Date(c.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-  );
-  const timeTooltipLabels = sliced.map((c) => new Date(c.time).toLocaleString());
+  const timeLabels = sliced.map((c) => formatUtcLabel(c.time));
+  const timeTooltipLabels = sliced.map((c) => formatUtcTooltip(c.time));
   return { timeLabels, timeTooltipLabels };
 };
 
@@ -85,7 +94,9 @@ const generateHeatmapData = (
   const timeCount = timeLabels.length;
 
   bucketVolume.forEach((volume, priceIndex) => {
-    const intensity = Math.min(VISUAL_MAX, Math.round((volume / maxVolume) * VISUAL_MAX));
+    const normalized = volume / maxVolume;
+    const adjusted = Math.pow(normalized, INTENSITY_GAMMA);
+    const intensity = Math.max(0, Math.min(VISUAL_MAX, adjusted * VISUAL_MAX));
     for (let t = 0; t < timeCount; t += 1) {
       data.push([t, priceIndex, intensity, volume]);
     }
@@ -235,7 +246,7 @@ export const LiquidationHeatmap: React.FC = observer(() => {
         right: 8,
         top: 'center',
         inRange: {
-          color: ['#0f172a', '#1e3a8a', '#0ea5e9', '#22c55e', '#eab308'],
+          color: ['#0b1020', '#162a5d', '#23408f', '#2b6cb0', '#1fa3ff', '#22c55e', '#eab308'],
         },
         textStyle: { color: '#9CA3AF', fontSize: 10 },
       },
